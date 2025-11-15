@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Microsoft Timeline - Complete History</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(to bottom, #0f1419 0%, #1a1f2e 50%, #1f1438 100%);
+            color: white;
+            overflow-x: auto;
+            overflow-y: hidden;
+            height: 100vh;
+            width: 100%;
+            position: relative;
+        }
+
+        /* Space particles canvas */
+        #space-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+        
+        body.panel-open {
+            /* No margin change - we'll shift the timeline instead */
+        }
+        
+        /* Subtle background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: radial-gradient(circle at 20% 50%, rgba(0, 120, 212, 0.05) 0%, transparent 50%),
+                              radial-gradient(circle at 80% 80%, rgba(127, 186, 0, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        /* Fixed Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            padding: 25px 20px;
+            background: linear-gradient(to bottom, rgba(15, 20, 25, 0.95), rgba(15, 20, 25, 0.7));
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .main-title {
+            font-size: 42px;
+            font-weight: 700;
+            letter-spacing: 6px;
+            color: #ffffff;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 10px rgba(0, 120, 212, 0.3);
+        }
+        .subtitle {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            letter-spacing: 2px;
+            font-weight: 400;
+        }
+        
+        /* Progress Bar */
+        .progress-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #0078D4, #00D4FF, #7FBA00);
+            width: 0%;
+            transition: width 0.1s ease-out;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+        
+        /* Era Markers on Timeline */
+        .era-marker {
+            position: absolute;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .era-marker-arrow {
+            width: 0;
+            height: 0;
+            border-top: 12px solid transparent;
+            border-bottom: 12px solid transparent;
+            border-left: 18px solid rgba(0, 212, 255, 0.9);
+            filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.5));
+            animation: pulse-arrow 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-arrow {
+            0%, 100% {
+                opacity: 0.6;
+            }
+            50% {
+                opacity: 0.8;
+            }
+        }
+        
+        .era-marker-label {
+            position: absolute;
+            top: -30px;
+            left: 22px;
+            background: rgba(20, 25, 35, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 212, 255, 0.4);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #00D4FF;
+            white-space: nowrap;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* Era Navigation Panel - Ultra Minimal */
+        .era-nav-panel {
+            position: fixed;
+            top: 110px;
+            right: 30px;
+            background: rgba(20, 25, 35, 0.75);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 30px;
+            padding: 10px 8px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        .era-nav-title {
+            font-size: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.4);
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            margin-bottom: 5px;
+        }
+        .era-button {
+            width: 12px;
+            height: 12px;
+            padding: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .era-button:hover {
+            background: rgba(0, 120, 212, 0.5);
+            border-color: rgba(0, 120, 212, 0.8);
+            transform: scale(1.4);
+            box-shadow: 0 0 12px rgba(0, 120, 212, 0.6);
+        }
+        .era-button.active {
+            background: #0078D4;
+            border-color: #00D4FF;
+            transform: scale(1.3);
+            box-shadow: 0 0 15px rgba(0, 120, 212, 0.8);
+        }
+        .era-button.active::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 212, 255, 0.4);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation: pulse-ring 2s ease-in-out infinite;
+        }
+        @keyframes pulse-ring {
+            0%, 100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.5);
+            }
+        }
+
+        /* Tooltip for era dots */
+        .era-button::before {
+            content: attr(data-era-name);
+            position: absolute;
+            right: 35px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(10, 14, 20, 0.95);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        .era-button:hover::before {
+            opacity: 1;
+        }
+
+        /* Era Change Notification */
+        .era-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.8);
+            background: linear-gradient(135deg, rgba(0, 120, 212, 0.95), rgba(0, 188, 242, 0.95));
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            padding: 30px 50px;
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+        .era-notification.active {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+        .era-notification-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.8;
+            margin-bottom: 10px;
+        }
+        .era-notification-name {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        .era-notification-years {
+            font-size: 16px;
+            opacity: 0.9;
+            font-weight: 500;
+        }
+
+        /* Background color shift effect */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, var(--era-color), transparent 70%);
+            opacity: 0;
+            z-index: 0;
+            pointer-events: none;
+            transition: opacity 1s ease-in-out;
+        }
+        body.era-changing::after {
+            opacity: 0.15;
+        }
+
+        /* Era change overlay effect */
+        .era-change-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, rgba(0, 120, 212, 0.15), transparent);
+            z-index: 99;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s;
+        }
+        .era-change-overlay.active {
+            opacity: 1;
+        }
+
+        /* Remove the old styles */
+        .era-button-years {
+            display: none;
+        }
+        
+        /* Navigation Arrows */
+        .nav-arrows {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 100;
+        }
+        .nav-arrows.left { left: 30px; }
+        .nav-arrows.right { right: 30px; }
+        .nav-btn {
+            width: 50px;
+            height: 50px;
+            background: rgba(20, 25, 35, 0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        .nav-btn:hover {
+            background: rgba(0, 120, 212, 0.4);
+            border-color: rgba(0, 120, 212, 0.6);
+            transform: scale(1.1);
+        }
+        .nav-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: rgba(255, 255, 255, 0.8);
+        }
+        
+        /* Timeline */
+        #timeline-container {
+            padding-top: 110px;
+            position: relative;
+        }
+        
+        #timeline {
+            display: block;
+        }
+        
+        /* Timeline elements */
+        .timeline-path {
+            fill: none;
+            stroke-width: 3;
+            opacity: 0.6;
+        }
+        
+        .milestone-group {
+            cursor: pointer;
+            transform-origin: center center;
+        }
+        
+        .milestone-group.active {
+            z-index: 50;
+        }
+        
+        .milestone-ring {
+            fill: none;
+            stroke-width: 2;
+            opacity: 0.2;
+            transition: all 0.3s ease;
+        }
+        
+        .milestone-group:hover .milestone-ring {
+            opacity: 0.5;
+            stroke-width: 2.5;
+        }
+        
+        .milestone-group.active .milestone-ring {
+            opacity: 0.7;
+            stroke-width: 3;
+        }
+        
+        /* Ripple effect on click */
+        .milestone-group.active .milestone-ring {
+            animation: ripple 1.5s ease-out infinite;
+        }
+        
+        @keyframes ripple {
+            0% {
+                r: 35;
+                opacity: 0.6;
+            }
+            100% {
+                r: 50;
+                opacity: 0;
+            }
+        }
+        
+        /* Sparkle particles */
+        .sparkle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #00D4FF;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: sparkleFloat 1.5s ease-out forwards;
+            box-shadow: 0 0 6px #00D4FF;
+        }
+        
+        @keyframes sparkleFloat {
+            0% {
+                opacity: 1;
+                transform: translate(0, 0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(var(--tx), var(--ty)) scale(0);
+            }
+        }
+        
+        .milestone-circle {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .milestone-group:hover .milestone-circle {
+            transform: scale(1.15);
+            filter: brightness(1.2);
+        }
+        
+        .milestone-group.active .milestone-circle {
+            stroke-width: 5;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                filter: drop-shadow(0 0 15px currentColor);
+            }
+            50% {
+                filter: drop-shadow(0 0 25px currentColor);
+            }
+        }
+        
+        .year-text {
+            font-size: 16px;
+            font-weight: 700;
+            fill: white;
+            text-anchor: middle;
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+        
+        .milestone-group:hover .year-text {
+            font-size: 18px;
+            fill: #00D4FF;
+        }
+        
+        .event-text {
+            font-size: 13px;
+            font-weight: 600;
+            fill: rgba(255, 255, 255, 0.9);
+            text-anchor: middle;
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+        
+        .milestone-group:hover .event-text {
+            fill: white;
+            font-size: 14px;
+        }
+        
+        .event-desc {
+            font-size: 11px;
+            fill: rgba(255, 255, 255, 0.6);
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        /* Enhanced Tooltip */
+        #tooltip {
+            position: fixed;
+            background: rgba(10, 15, 25, 0.98);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            pointer-events: none;
+            opacity: 0;
+            visibility: hidden;
+            transform: scale(0.9) translateY(10px);
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+            z-index: 9999;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9);
+            max-width: 280px;
+        }
+        
+        #tooltip::before {
+            content: '';
+            position: absolute;
+            left: -10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-top: 8px solid transparent;
+            border-bottom: 8px solid transparent;
+            border-right: 10px solid rgba(0, 212, 255, 0.3);
+        }
+        
+        #tooltip.active {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1) translateY(0);
+        }
+        
+        .tooltip-year {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            background: linear-gradient(90deg, #00D4FF, #0078D4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+        }
+        
+        .tooltip-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 6px;
+        }
+        
+        .tooltip-desc {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        
+        .tooltip-category {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid currentColor;
+        }
+        
+        .tooltip-hint {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            font-style: italic;
+        }
+        
+        /* Backdrop Overlay */
+        .backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 9000;
+        }
+        
+        .backdrop.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        /* Connecting Line Animation */
+        .connecting-line {
+            position: fixed;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00D4FF, transparent);
+            transform-origin: left center;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9500;
+            box-shadow: 0 0 10px #00D4FF;
+        }
+        
+        .connecting-line.active {
+            opacity: 1;
+            animation: lineGlow 2s ease-in-out infinite;
+        }
+        
+        @keyframes lineGlow {
+            0%, 100% {
+                opacity: 0.8;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+        
+        /* Detail Panel (Positioned beside dot) */
+        .detail-panel {
+            position: fixed;
+            width: 450px;
+            max-height: 650px;
+            background: linear-gradient(135deg, rgba(20, 25, 35, 0.98) 0%, rgba(15, 20, 30, 0.98) 100%);
+            backdrop-filter: blur(30px);
+            border: 2px solid rgba(0, 212, 255, 0.4);
+            box-shadow: 0 20px 80px rgba(0, 0, 0, 0.9), 0 0 60px rgba(0, 120, 212, 0.3);
+            z-index: 10000;
+            overflow-y: auto;
+            overflow-x: hidden;
+            border-radius: 20px;
+            opacity: 0;
+            transform: scale(0.5) translateX(-30px) rotateY(-15deg);
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+            left: 0;
+            top: 0;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+        }
+        
+        .detail-panel.active {
+            opacity: 1;
+            transform: scale(1) translateX(0) rotateY(0deg);
+            pointer-events: all;
+            animation: panelAppear 0.6s ease-out, panelGlow 2s ease-in-out infinite 0.6s;
+        }
+        
+        @keyframes panelAppear {
+            0% {
+                transform: scale(0.5) translateX(-30px) rotateY(-15deg);
+                opacity: 0;
+            }
+            60% {
+                transform: scale(1.05) translateX(0) rotateY(0deg);
+            }
+            100% {
+                transform: scale(1) translateX(0) rotateY(0deg);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes panelGlow {
+            0%, 100% {
+                box-shadow: 0 20px 80px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 212, 255, 0.4);
+            }
+            50% {
+                box-shadow: 0 20px 80px rgba(0, 0, 0, 0.9), 0 0 80px rgba(0, 212, 255, 0.6);
+            }
+        }
+        
+        .detail-panel-header {
+            padding: 30px;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+            background: linear-gradient(135deg, rgba(20, 30, 45, 0.9), rgba(15, 20, 30, 0.9));
+            border-radius: 20px 20px 0 0;
+        }
+        
+        .close-panel-btn {
+            float: right;
+            width: 40px;
+            height: 40px;
+            background: rgba(242, 80, 34, 0.2);
+            border: 2px solid rgba(242, 80, 34, 0.4);
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            color: #F25022;
+            font-size: 28px;
+            line-height: 1;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(242, 80, 34, 0.3);
+        }
+        
+        .close-panel-btn:hover {
+            background: rgba(242, 80, 34, 0.4);
+            border-color: rgba(242, 80, 34, 0.8);
+            color: #fff;
+            transform: rotate(90deg) scale(1.15);
+            box-shadow: 0 6px 20px rgba(242, 80, 34, 0.5);
+        }
+        
+        .detail-year {
+            font-size: 48px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #00D4FF 0%, #0078D4 50%, #7FBA00 100%);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            clear: both;
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        
+        @keyframes shimmer {
+            0%, 100% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+        }
+        
+        .detail-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 12px;
+            line-height: 1.2;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .detail-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            border: 2px solid currentColor;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .detail-content {
+            padding: 30px;
+            background: rgba(15, 20, 30, 0.5);
+        }
+        
+        .detail-section {
+            margin-bottom: 30px;
+        }
+        
+        .detail-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #00D4FF;
+            margin-bottom: 12px;
+        }
+        
+        .detail-description {
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.95);
+            line-height: 1.6;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+        
+        .detail-impact {
+            background: linear-gradient(135deg, rgba(0, 120, 212, 0.15), rgba(0, 212, 255, 0.1));
+            border-left: 4px solid #00D4FF;
+            padding: 20px;
+            border-radius: 8px;
+            font-size: 15px;
+            line-height: 1.7;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .detail-impact-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #00D4FF;
+            margin-bottom: 12px;
+        }
+        
+        /* Scrollbar for detail panel */
+        .detail-panel::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .detail-panel::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        
+        .detail-panel::-webkit-scrollbar-thumb {
+            background: rgba(0, 120, 212, 0.4);
+            border-radius: 4px;
+        }
+        
+        .detail-panel::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 120, 212, 0.6);
+        }
+        
+        /* Body scrollbar */
+        ::-webkit-scrollbar {
+            height: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 120, 212, 0.5);
+            border-radius: 5px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 120, 212, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="main-title">MICROSOFT</div>
+        <div class="subtitle">A JOURNEY THROUGH TIME • 1975 - 2024</div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-container">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <!-- Era Navigation Panel - Minimal Dots -->
+    <div class="era-nav-panel">
+        <div class="era-nav-title">Eras</div>
+        <button class="era-button active" data-era="0" data-era-name="Founding Era (1975-1985)"></button>
+        <button class="era-button" data-era="1" data-era-name="Windows Era (1986-1994)"></button>
+        <button class="era-button" data-era="2" data-era-name="Internet Age (1995-2000)"></button>
+        <button class="era-button" data-era="3" data-era-name="Ballmer Era (2001-2013)"></button>
+        <button class="era-button" data-era="4" data-era-name="Cloud & AI (2014-2024)"></button>
+    </div>
+
+    <!-- Era Change Notification -->
+    <div class="era-notification" id="eraNotification">
+        <div class="era-notification-title">Now Viewing</div>
+        <div class="era-notification-name" id="eraNotificationName">The Founding Era</div>
+        <div class="era-notification-years" id="eraNotificationYears">1975-1985</div>
+    </div>
+
+    <!-- Era Change Overlay -->
+    <div class="era-change-overlay" id="eraChangeOverlay"></div>
+    
+    <!-- Space Canvas -->
+    <canvas id="space-canvas"></canvas>
+
+    <!-- Navigation -->
+    <div class="nav-arrows left">
+        <button class="nav-btn" id="leftBtn">
+            <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+    </div>
+    <div class="nav-arrows right">
+        <button class="nav-btn" id="rightBtn">
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+        </button>
+    </div>
+
+    <!-- Timeline -->
+    <div id="timeline-container">
+        <svg id="timeline"></svg>
+    </div>
+
+    <!-- Enhanced Tooltip -->
+    <div id="tooltip">
+        <div id="tooltipContent"></div>
+    </div>
+
+    <!-- Backdrop Overlay -->
+    <div class="backdrop" id="backdrop"></div>
+    
+    <!-- Connecting Line -->
+    <div class="connecting-line" id="connectingLine"></div>
+
+    <!-- Detail Panel (Right Side) -->
+    <div class="detail-panel" id="detailPanel">
+        <div class="detail-panel-header">
+            <button class="close-panel-btn" id="closePanelBtn">×</button>
+            <div class="detail-year" id="detailYear"></div>
+            <div class="detail-title" id="detailTitle"></div>
+            <div class="detail-badge" id="detailBadge"></div>
+        </div>
+        <div class="detail-content">
+            <div class="detail-section">
+                <div class="detail-section-title">Overview</div>
+                <div class="detail-description" id="detailDescription"></div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-impact">
+                    <div class="detail-impact-title">Impact & Legacy</div>
+                    <div id="detailImpact"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Comprehensive Microsoft timeline data
+        const milestones = [
+            { year: 1975, event: "Microsoft Founded", desc: "Albuquerque, New Mexico", category: "Company", color: "#0078D4", impact: "Bill Gates and Paul Allen founded Microsoft to develop and sell BASIC interpreters for the Altair 8800." },
+            { year: 1980, event: "MS-DOS", desc: "Operating System", category: "Product", color: "#FFB900", impact: "Microsoft partnered with IBM to provide MS-DOS for the IBM PC, establishing dominance in personal computing." },
+            { year: 1985, event: "Windows 1.0", desc: "Graphical Interface", category: "Product", color: "#00A4EF", impact: "First version of Windows introduced GUI to MS-DOS, laying groundwork for future Windows versions." },
+            { year: 1986, event: "IPO", desc: "Public Offering", category: "Company", color: "#0078D4", impact: "Microsoft went public at $21 per share, raising $61 million with $519 million valuation." },
+            { year: 1990, event: "Windows 3.0", desc: "Mainstream Success", category: "OS", color: "#00A4EF", impact: "First major commercial Windows success. Sold 10 million copies in two years." },
+            { year: 1990, event: "Office Suite", desc: "Word, Excel, PowerPoint", category: "Product", color: "#F25022", impact: "Microsoft Office bundled productivity apps, revolutionizing workplace software." },
+            { year: 1995, event: "Windows 95", desc: "Start Menu Era", category: "OS", color: "#00A4EF", impact: "Revolutionary UI with Start menu and taskbar. Sold 7 million copies in 5 weeks." },
+            { year: 1996, event: "Internet Explorer 3", desc: "Browser Wars", category: "Product", color: "#00A4EF", impact: "First serious Netscape competitor. Bundled free with Windows." },
+            { year: 1998, event: "Windows 98", desc: "USB & Internet", category: "OS", color: "#00A4EF", impact: "Native USB support and deep Internet integration. Peak of Windows 9x line." },
+            { year: 2000, event: "Windows 2000", desc: "NT for Desktops", category: "OS", color: "#00A4EF", impact: "Brought enterprise-grade NT stability to mainstream users with Active Directory." },
+            { year: 2001, event: "Windows XP", desc: "Legendary OS", category: "OS", color: "#00A4EF", impact: "Most popular Windows ever. Unified consumer and business lines. Used until 2014." },
+            { year: 2001, event: "Xbox", desc: "Gaming Console", category: "Hardware", color: "#7FBA00", impact: "Entered console gaming with DirectX-based Xbox. Halo became killer app. Sold 24M units." },
+            { year: 2002, event: ".NET Framework", desc: "Developer Platform", category: "Developer", color: "#7FBA00", impact: "Introduced Common Language Runtime and unified programming model across platforms." },
+            { year: 2005, event: "Xbox 360", desc: "HD Gaming", category: "Hardware", color: "#7FBA00", impact: "Pioneered HD gaming and Xbox Live. Sold 84 million units, highly profitable." },
+            { year: 2007, event: "Office 2007", desc: "Ribbon Interface", category: "Product", color: "#F25022", impact: "Revolutionary Ribbon UI replaced menus. Introduced .docx and Office Open XML." },
+            { year: 2008, event: "Windows Azure", desc: "Cloud Platform", category: "Service", color: "#00A4EF", impact: "Entered cloud computing. Now generates over $90 billion annually as Azure." },
+            { year: 2009, event: "Bing", desc: "Search Engine", category: "Service", color: "#F25022", impact: "Launched to compete with Google. Now integrated with AI capabilities." },
+            { year: 2009, event: "Windows 7", desc: "Vista Redemption", category: "OS", color: "#00A4EF", impact: "Fixed Vista's problems. Widely considered one of the best Windows versions." },
+            { year: 2011, event: "Skype Acquisition", desc: "$8.5B Deal", category: "Acquisition", color: "#7FBA00", impact: "Acquired Skype bringing 663 million users to Microsoft ecosystem." },
+            { year: 2012, event: "Windows 8", desc: "Touch-First OS", category: "OS", color: "#00A4EF", impact: "Controversial redesign optimized for tablets with Metro interface." },
+            { year: 2012, event: "Surface RT", desc: "First Surface", category: "Hardware", color: "#FFB900", impact: "First Microsoft Surface tablet began successful Surface hardware line." },
+            { year: 2014, event: "Satya Nadella CEO", desc: "New Direction", category: "Company", color: "#0078D4", impact: "Satya Nadella became third CEO. Transformed culture to 'cloud first, mobile first'." },
+            { year: 2014, event: "Minecraft Acquisition", desc: "$2.5B Deal", category: "Acquisition", color: "#7FBA00", impact: "Acquired Mojang and Minecraft with 100 million users." },
+            { year: 2015, event: "Windows 10", desc: "Unified Platform", category: "OS", color: "#00A4EF", impact: "Free upgrade bringing back Start Menu. 'Windows as a Service' model." },
+            { year: 2016, event: "LinkedIn Acquisition", desc: "$26.2B Deal", category: "Acquisition", color: "#7FBA00", impact: "Brought 433 million professionals, integrated with Office 365." },
+            { year: 2018, event: "GitHub Acquisition", desc: "$7.5B Deal", category: "Acquisition", color: "#7FBA00", impact: "Acquired GitHub with 28 million developers. Showed open source commitment." },
+            { year: 2020, event: "Xbox Series X/S", desc: "Next-Gen Consoles", category: "Hardware", color: "#FFB900", impact: "Fourth generation Xbox with Series X (4K 120fps) and Series S (affordable entry)." },
+            { year: 2021, event: "Windows 11", desc: "Modern Windows", category: "OS", color: "#00A4EF", impact: "Major redesign with centered Start menu and rounded corners." },
+            { year: 2022, event: "Activision Deal", desc: "$68.7B Acquisition", category: "Acquisition", color: "#7FBA00", impact: "Largest gaming acquisition ever. Makes Microsoft 3rd largest gaming company." },
+            { year: 2023, event: "Bing AI Chat", desc: "ChatGPT Integration", category: "Service", color: "#F25022", impact: "$10B OpenAI investment brought AI to Bing with GPT-4." },
+            { year: 2023, event: "Microsoft Copilot", desc: "AI Everywhere", category: "Product", color: "#7FBA00", impact: "AI assistant integrated across Office 365, Windows, and GitHub." },
+            { year: 2024, event: "Copilot+ PCs", desc: "AI Hardware", category: "Hardware", color: "#FFB900", impact: "New PC category with neural processing units for on-device AI." }
+        ];
+
+        const eras = [
+            { start: 1975, end: 1985, name: "Founding Era", ceo: "Bill Gates", years: "1975-1985" },
+            { start: 1986, end: 1994, name: "Windows Era", ceo: "Bill Gates", years: "1986-1994" },
+            { start: 1995, end: 2000, name: "Internet Age", ceo: "Bill Gates", years: "1995-2000" },
+            { start: 2001, end: 2013, name: "Ballmer Era", ceo: "Steve Ballmer", years: "2001-2013" },
+            { start: 2014, end: 2024, name: "Cloud & AI", ceo: "Satya Nadella", years: "2014-2024" }
+        ];
+
+        // Calculate width based on milestones
+        const spacing = 300;
+        const width = milestones.length * spacing;
+        const height = 500;
+        
+        const svg = d3.select("#timeline")
+            .attr("width", width)
+            .attr("height", height);
+
+        const centerY = height / 2;
+        const amplitude = 60;
+
+        // Gradient
+        const gradient = svg.append("defs")
+            .append("linearGradient")
+            .attr("id", "gradient")
+            .attr("x1", "0%")
+            .attr("x2", "100%");
+
+        gradient.append("stop").attr("offset", "0%").attr("stop-color", "#0078D4");
+        gradient.append("stop").attr("offset", "50%").attr("stop-color", "#7FBA00");
+        gradient.append("stop").attr("offset", "100%").attr("stop-color", "#F25022");
+
+        // Generate smooth curve path
+        const line = d3.line()
+            .x((d, i) => spacing * i + spacing / 2)
+            .y((d, i) => centerY + Math.sin(i * 0.5) * amplitude)
+            .curve(d3.curveCatmullRom.alpha(0.5));
+
+        svg.append("path")
+            .datum(milestones)
+            .attr("class", "timeline-path")
+            .attr("d", line)
+            .attr("stroke", "url(#gradient)");
+
+        // Create milestones
+        const groups = svg.selectAll(".milestone-group")
+            .data(milestones)
+            .enter()
+            .append("g")
+            .attr("class", "milestone-group")
+            .attr("data-index", (d, i) => i)
+            .attr("transform", (d, i) => {
+                const x = spacing * i + spacing / 2;
+                const y = centerY + Math.sin(i * 0.5) * amplitude;
+                return `translate(${x}, ${y}) scale(1)`;
+            })
+            .on("mouseenter", showTooltip)
+            .on("mouseleave", hideTooltip)
+            .on("click", handleMilestoneClick);
+
+        // Rings
+        groups.append("circle")
+            .attr("class", "milestone-ring")
+            .attr("r", 35)
+            .attr("stroke", d => d.color);
+
+        // Main circles
+        groups.append("circle")
+            .attr("class", "milestone-circle")
+            .attr("r", 24)
+            .attr("fill", d => d.color)
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 3)
+            .style("filter", d => `drop-shadow(0 2px 8px ${d.color})`);
+
+        // Year labels
+        groups.append("text")
+            .attr("class", "year-text")
+            .attr("y", -45)
+            .text(d => d.year);
+
+        // Event titles
+        groups.append("text")
+            .attr("class", "event-text")
+            .attr("y", 60)
+            .text(d => d.event);
+
+        // Event descriptions
+        groups.append("text")
+            .attr("class", "event-desc")
+            .attr("y", 80)
+            .text(d => d.desc);
+
+        // Add era markers on the timeline - positioned BEFORE each era begins
+        eras.forEach((era, eraIndex) => {
+            // Find the first milestone in this era
+            const firstMilestoneIndex = milestones.findIndex(
+                m => m.year >= era.start && m.year <= era.end
+            );
+
+            if (firstMilestoneIndex !== -1) {
+                // Position arrow BEFORE the first milestone
+                let arrowX;
+                if (firstMilestoneIndex === 0) {
+                    arrowX = spacing / 4; // Near the beginning
+                } else {
+                    // Position between previous milestone and current one
+                    const prevX = spacing * (firstMilestoneIndex - 1) + spacing / 2;
+                    const currentX = spacing * firstMilestoneIndex + spacing / 2;
+                    arrowX = (prevX + currentX) / 2; // Midpoint between milestones
+                }
+                
+                // Calculate Y position on the curve at the arrow's X position
+                const normalizedIndex = arrowX / spacing;
+                const y = centerY + Math.sin(normalizedIndex * 0.5) * amplitude;
+
+                // Create a group for the era marker - minimalistic design
+                const markerGroup = svg.append("g")
+                    .attr("class", "era-marker")
+                    .attr("transform", `translate(${arrowX - 20}, ${y})`);
+
+                // Small, subtle arrow - minimalistic
+                markerGroup.append("polygon")
+                    .attr("class", "era-marker-arrow")
+                    .attr("points", "0,-6 0,6 12,0")
+                    .attr("fill", "rgba(255, 255, 255, 0.6)")
+                    .attr("stroke", "rgba(255, 255, 255, 0.3)")
+                    .attr("stroke-width", 1)
+                    .style("filter", "drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3))")
+                    .style("animation", "pulse-arrow 3s ease-in-out infinite");
+
+                // Simple label background
+                const labelWidth = era.name.length * 6.5 + 14;
+                markerGroup.append("rect")
+                    .attr("x", 16)
+                    .attr("y", -22)
+                    .attr("width", labelWidth)
+                    .attr("height", 16)
+                    .attr("fill", "rgba(30, 35, 45, 0.85)")
+                    .attr("stroke", "rgba(255, 255, 255, 0.15)")
+                    .attr("stroke-width", 1)
+                    .attr("rx", 4)
+                    .style("filter", "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))");
+
+                // Clean label text
+                markerGroup.append("text")
+                    .attr("x", 16 + labelWidth / 2)
+                    .attr("y", -11)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "rgba(255, 255, 255, 0.8)")
+                    .style("font-size", "9px")
+                    .style("font-weight", "600")
+                    .style("pointer-events", "none")
+                    .text(era.name);
+            }
+        });
+
+        // Tooltip functionality
+        const tooltip = d3.select("#tooltip");
+        
+        function showTooltip(event, d) {
+            const tooltipContent = d3.select("#tooltipContent");
+            tooltipContent.html(`
+                <div class="tooltip-year">${d.year}</div>
+                <div class="tooltip-title">${d.event}</div>
+                <div class="tooltip-desc">${d.desc}</div>
+                <div class="tooltip-category" style="background: ${d.color}33; color: ${d.color};">${d.category}</div>
+                <div class="tooltip-hint">💡 Click for details</div>
+            `);
+            
+            // Get the milestone element's bounding box in viewport
+            const milestoneElement = event.currentTarget;
+            const bbox = milestoneElement.getBoundingClientRect();
+            
+            // Position tooltip to the right of the milestone
+            const leftPos = bbox.left + bbox.width / 2 + 50;
+            const topPos = bbox.top + bbox.height / 2;
+            
+            tooltip
+                .style("left", leftPos + "px")
+                .style("top", topPos + "px")
+                .style("transform", "translateY(-50%)")
+                .classed("active", true);
+        }
+
+        function hideTooltip() {
+            tooltip.classed("active", false);
+        }
+
+        // Handle milestone click with zoom and panel
+        let activeGroup = null;
+        
+        function createSparkles(x, y) {
+            // Create 8 sparkle particles around the dot
+            for (let i = 0; i < 8; i++) {
+                const sparkle = document.createElement('div');
+                sparkle.className = 'sparkle';
+                
+                const angle = (i / 8) * Math.PI * 2;
+                const distance = 60;
+                const tx = Math.cos(angle) * distance;
+                const ty = Math.sin(angle) * distance;
+                
+                sparkle.style.left = x + 'px';
+                sparkle.style.top = y + 'px';
+                sparkle.style.setProperty('--tx', tx + 'px');
+                sparkle.style.setProperty('--ty', ty + 'px');
+                
+                document.body.appendChild(sparkle);
+                
+                // Remove sparkle after animation
+                setTimeout(() => sparkle.remove(), 1500);
+            }
+        }
+        
+        function handleMilestoneClick(event, d) {
+            // Hide tooltip immediately
+            hideTooltip();
+            
+            // Remove previous active state
+            if (activeGroup) {
+                const prevIndex = parseInt(activeGroup.attr("data-index"));
+                const prevX = spacing * prevIndex + spacing / 2;
+                const prevY = centerY + Math.sin(prevIndex * 0.5) * amplitude;
+                activeGroup
+                    .transition()
+                    .duration(300)
+                    .attr("transform", `translate(${prevX}, ${prevY}) scale(1)`);
+                activeGroup.classed("active", false);
+            }
+            
+            // Add active state to clicked milestone
+            const clickedGroup = d3.select(this);
+            const index = parseInt(clickedGroup.attr("data-index"));
+            const x = spacing * index + spacing / 2;
+            const y = centerY + Math.sin(index * 0.5) * amplitude;
+            
+            // Apply scale while keeping exact position with smooth transition
+            clickedGroup
+                .transition()
+                .duration(300)
+                .attr("transform", `translate(${x}, ${y}) scale(1.3)`);
+            
+            clickedGroup.classed("active", true);
+            activeGroup = clickedGroup;
+            
+            // Calculate position for sparkles and detail panel
+            const svg = document.getElementById('timeline');
+            const svgRect = svg.getBoundingClientRect();
+            
+            // Create sparkle particles at dot position (using viewport coordinates)
+            const sparkleX = svgRect.left + x;
+            const sparkleY = svgRect.top + y;
+            createSparkles(sparkleX, sparkleY);
+            
+            // Position panel to the right of the dot (fixed positioning)
+            // Center it vertically in viewport
+            const panelLeft = sparkleX + 80; // 80px offset from dot
+            const panelTop = Math.max(120, Math.min(window.innerHeight - 670, sparkleY - 200));
+            
+            // Show detail panel with content and position
+            showDetailPanel(d, panelLeft, panelTop);
+        }
+
+        // Detail Panel functionality
+        function showDetailPanel(d, left, top) {
+            const panel = document.getElementById('detailPanel');
+            const backdrop = document.getElementById('backdrop');
+            const connectingLine = document.getElementById('connectingLine');
+            
+            console.log('Opening detail panel at:', { left, top, event: d.event });
+            
+            // Set content
+            document.getElementById('detailYear').textContent = d.year;
+            document.getElementById('detailTitle').textContent = d.event;
+            document.getElementById('detailBadge').textContent = d.category;
+            document.getElementById('detailBadge').style.background = d.color + '33';
+            document.getElementById('detailBadge').style.borderColor = d.color;
+            document.getElementById('detailBadge').style.color = d.color;
+            document.getElementById('detailDescription').textContent = d.desc;
+            document.getElementById('detailImpact').textContent = d.impact;
+            
+            // Add color-matched glow to panel
+            panel.style.boxShadow = `0 20px 80px rgba(0, 0, 0, 0.9), 0 0 60px ${d.color}66`;
+            panel.style.borderColor = d.color + '66';
+            
+            // Set connecting line color
+            connectingLine.style.background = `linear-gradient(90deg, ${d.color}, transparent)`;
+            connectingLine.style.boxShadow = `0 0 10px ${d.color}`;
+            
+            // Ensure panel stays within viewport
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const panelWidth = 450;
+            const panelHeight = 650;
+            
+            // Adjust position if panel goes off-screen
+            let finalLeft = left;
+            let finalTop = top;
+            
+            // Keep panel within horizontal bounds
+            if (finalLeft + panelWidth > viewportWidth - 20) {
+                finalLeft = viewportWidth - panelWidth - 20;
+            }
+            if (finalLeft < 20) {
+                finalLeft = 20;
+            }
+            
+            // Keep panel within vertical bounds
+            if (finalTop + panelHeight > viewportHeight - 20) {
+                finalTop = viewportHeight - panelHeight - 20;
+            }
+            if (finalTop < 120) { // Account for header
+                finalTop = 120;
+            }
+            
+            console.log('Final panel position:', { finalLeft, finalTop });
+            
+            // Position panel
+            panel.style.left = finalLeft + 'px';
+            panel.style.top = finalTop + 'px';
+            
+            // Position and show connecting line
+            const dotX = finalLeft - 50;
+            const dotY = finalTop + 100;
+            connectingLine.style.left = dotX + 'px';
+            connectingLine.style.top = dotY + 'px';
+            connectingLine.style.width = '50px';
+            
+            // Show backdrop first
+            backdrop.classList.add('active');
+            
+            // Small delay for smooth transition
+            setTimeout(() => {
+                connectingLine.classList.add('active');
+                panel.classList.add('active');
+                console.log('Panel should now be visible');
+            }, 100);
+        }
+
+        function closeDetailPanel() {
+            const panel = document.getElementById('detailPanel');
+            const backdrop = document.getElementById('backdrop');
+            const connectingLine = document.getElementById('connectingLine');
+            
+            panel.classList.remove('active');
+            backdrop.classList.remove('active');
+            connectingLine.classList.remove('active');
+            
+            // Remove active state from milestone and reset transform smoothly
+            if (activeGroup) {
+                const index = parseInt(activeGroup.attr("data-index"));
+                const x = spacing * index + spacing / 2;
+                const y = centerY + Math.sin(index * 0.5) * amplitude;
+                
+                activeGroup
+                    .transition()
+                    .duration(300)
+                    .attr("transform", `translate(${x}, ${y}) scale(1)`);
+                
+                activeGroup.classed("active", false);
+                activeGroup = null;
+            }
+        }
+
+        document.getElementById('closePanelBtn').addEventListener('click', closeDetailPanel);
+        document.getElementById('backdrop').addEventListener('click', closeDetailPanel);
+
+        // Update progress and era
+        function updateProgress() {
+            const maxScroll = document.body.scrollWidth - window.innerWidth;
+            const scrollPercentage = (window.scrollX / maxScroll) * 100;
+            document.getElementById("progressBar").style.width = scrollPercentage + "%";
+            
+            // Update era
+            const scrollPos = window.scrollX / maxScroll;
+            const currentYear = 1975 + (2024 - 1975) * scrollPos;
+            
+            const currentEra = eras.find(era => currentYear >= era.start && currentYear <= era.end);
+            if (currentEra) {
+                document.getElementById("eraName").textContent = currentEra.name;
+                document.getElementById("eraCEO").innerHTML = `<strong>CEO:</strong> ${currentEra.ceo}<br><span style="font-size: 11px; opacity: 0.7;">${currentEra.years}</span>`;
+            }
+        }
+
+        // Navigation
+        document.getElementById("leftBtn").addEventListener("click", function() {
+            window.scrollBy({ left: -600, behavior: 'smooth' });
+        });
+
+        document.getElementById("rightBtn").addEventListener("click", function() {
+            window.scrollBy({ left: 600, behavior: 'smooth' });
+        });
+
+        // Listen to scroll
+        window.addEventListener("scroll", updateProgress);
+
+        // Entrance animation
+        groups.style("opacity", 0)
+            .transition()
+            .duration(600)
+            .delay((d, i) => i * 30)
+            .style("opacity", 1);
+
+        // Keyboard navigation
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") closeDetailPanel();
+            if (e.key === "ArrowLeft") window.scrollBy({ left: -600, behavior: 'smooth' });
+            if (e.key === "ArrowRight") window.scrollBy({ left: 600, behavior: 'smooth' });
+        });
+
+        // Initialize space particles
+        function initSpaceParticles() {
+            const canvas = document.getElementById('space-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            const particles = [];
+            const particleCount = 60;
+            
+            // Create twinkling stars
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 1.5 + 0.5,
+                    speed: Math.random() * 0.2 + 0.05,
+                    opacity: Math.random() * 0.5 + 0.2,
+                    twinkleSpeed: Math.random() * 0.02 + 0.01
+                });
+            }
+            
+            function animate() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                particles.forEach(p => {
+                    // Twinkle effect
+                    p.opacity += p.twinkleSpeed;
+                    if (p.opacity >= 0.7 || p.opacity <= 0.2) {
+                        p.twinkleSpeed *= -1;
+                    }
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${p.opacity})`;
+                    ctx.fill();
+                    
+                    // Slow drift
+                    p.x += p.speed * 0.1;
+                    if (p.x > canvas.width) p.x = 0;
+                });
+                
+                requestAnimationFrame(animate);
+            }
+            
+            animate();
+            
+            // Handle resize
+            window.addEventListener('resize', () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            });
+        }
+
+        // Era Navigation
+        function setupEraNavigation() {
+            const eraButtons = document.querySelectorAll('.era-button');
+            const overlay = document.getElementById('eraChangeOverlay');
+            const notification = document.getElementById('eraNotification');
+            const notificationName = document.getElementById('eraNotificationName');
+            const notificationYears = document.getElementById('eraNotificationYears');
+            let isTransitioning = false;
+
+            // Era display names
+            const eraDisplayNames = [
+                'Founding Era',
+                'Windows Era',
+                'Internet Age',
+                'Ballmer Era',
+                'Cloud & AI'
+            ];
+
+            // Era colors for background
+            const eraColors = [
+                'rgba(0, 120, 212, 1)',    // Blue
+                'rgba(127, 186, 0, 1)',     // Green
+                'rgba(0, 188, 242, 1)',     // Light Blue
+                'rgba(255, 140, 0, 1)',     // Orange
+                'rgba(92, 45, 145, 1)'      // Purple
+            ];
+
+            eraButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    if (isTransitioning) return;
+
+                    const eraIndex = parseInt(this.dataset.era);
+                    const selectedEra = eras[eraIndex];
+                    
+                    // Update active state
+                    eraButtons.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // Close detail panel
+                    closeDetailPanel();
+
+                    // Show notification with era info
+                    notificationName.textContent = eraDisplayNames[eraIndex];
+                    notificationYears.textContent = `${selectedEra.start}-${selectedEra.end}`;
+                    notification.classList.add('active');
+
+                    // Change background color
+                    document.body.style.setProperty('--era-color', eraColors[eraIndex]);
+                    document.body.classList.add('era-changing');
+
+                    // Start transition
+                    isTransitioning = true;
+                    overlay.classList.add('active');
+
+                    // Find first milestone in this era
+                    const firstMilestoneIndex = milestones.findIndex(
+                        m => m.year >= selectedEra.start && m.year <= selectedEra.end
+                    );
+
+                    if (firstMilestoneIndex !== -1) {
+                        // Calculate scroll position to show era milestones
+                        // Position to show the arrow marker and milestones clearly
+                        const targetX = spacing * firstMilestoneIndex - (window.innerWidth / 4);
+
+                        // Scroll to era
+                        setTimeout(() => {
+                            window.scrollTo({
+                                left: Math.max(0, targetX),
+                                behavior: 'smooth'
+                            });
+
+                            // Briefly highlight milestones in this era
+                            setTimeout(() => {
+                                const allGroups = document.querySelectorAll('.milestone-group');
+                                allGroups.forEach((group, i) => {
+                                    const milestoneYear = milestones[i].year;
+                                    if (milestoneYear >= selectedEra.start && milestoneYear <= selectedEra.end) {
+                                        // Briefly highlight current era milestones
+                                        group.style.filter = 'brightness(1.3)';
+                                    }
+                                });
+
+                                // Create sparkles at first few milestones
+                                const milestonesInEra = milestones
+                                    .map((m, i) => ({ milestone: m, index: i }))
+                                    .filter(({ milestone }) => 
+                                        milestone.year >= selectedEra.start && 
+                                        milestone.year <= selectedEra.end
+                                    )
+                                    .slice(0, 3);
+
+                                milestonesInEra.forEach(({ index }, i) => {
+                                    setTimeout(() => {
+                                        const x = spacing * index + spacing / 2;
+                                        const y = centerY + Math.sin(index * 0.5) * amplitude;
+                                        const svgRect = document.getElementById('timeline').getBoundingClientRect();
+                                        createSparkles(svgRect.left + x, svgRect.top + y);
+                                    }, i * 200);
+                                });
+
+                                // Hide notification after 2 seconds
+                                setTimeout(() => {
+                                    notification.classList.remove('active');
+                                }, 2000);
+
+                                // End transition
+                                setTimeout(() => {
+                                    overlay.classList.remove('active');
+                                    document.body.classList.remove('era-changing');
+                                    
+                                    // Reset styles after a moment
+                                    setTimeout(() => {
+                                        allGroups.forEach(group => {
+                                            group.style.filter = '';
+                                        });
+                                    }, 2000);
+                                    
+                                    isTransitioning = false;
+                                }, 800);
+                            }, 300);
+                        }, 100);
+                    }
+                });
+            });
+
+            // Update active button based on scroll
+            let scrollTimeout;
+            window.addEventListener('scroll', () => {
+                if (isTransitioning) return;
+                
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    // Get the center of the viewport
+                    const viewportCenter = window.scrollX + (window.innerWidth / 2);
+                    
+                    // Find which milestone is closest to viewport center
+                    let closestMilestoneIndex = 0;
+                    let closestDistance = Infinity;
+                    
+                    milestones.forEach((milestone, index) => {
+                        const milestoneX = spacing * index + spacing / 2;
+                        const distance = Math.abs(milestoneX - viewportCenter);
+                        
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestMilestoneIndex = index;
+                        }
+                    });
+                    
+                    // Get the year of the closest milestone
+                    const closestYear = milestones[closestMilestoneIndex].year;
+                    
+                    // Find which era this year belongs to
+                    const currentEraIndex = eras.findIndex(
+                        era => closestYear >= era.start && closestYear <= era.end
+                    );
+                    
+                    if (currentEraIndex !== -1) {
+                        eraButtons.forEach((btn, index) => {
+                            btn.classList.toggle('active', index === currentEraIndex);
+                        });
+                    }
+                }, 150);
+            });
+            
+            // Initialize active button on page load (first era)
+            setTimeout(() => {
+                eraButtons.forEach((btn, index) => {
+                    btn.classList.toggle('active', index === 0);
+                });
+            }, 100);
+        }
+
+        // Initialize
+        initSpaceParticles();
+        setupEraNavigation();
+        updateProgress(); // Just update progress, no scroll
+    </script>
+</body>
+</html>
